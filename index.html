@@ -375,7 +375,9 @@ async function sync() {
     if (data.error) throw new Error(data.error);
     const rest = pending().slice(sent.length); // 보내는 사이 새로 생긴 변경
     setPending(rest);
-    save(apply(data.rows, rest));
+    // 시트에서 날짜 칸으로 저장된 값은 "Sun Nov 01 2026 ..." 처럼 올 수 있어서 2026-11-01 꼴로 맞춘다
+    const rows = data.rows.map((r) => (/^\d{4}-\d{2}-\d{2}$/.test(r.day) ? r : { ...r, day: iso(new Date(r.day)) }));
+    save(apply(rows, rest));
     mergeBalances(balances(), data.balances);
     localStorage.setItem("recurring", JSON.stringify({ from: data.recurringFrom, list: data.recurring || [] }));
     addRecurring(); // 받아온 목록으로 빠진 자동이체 채우기 (새로 생기면 아래에서 바로 올림)
