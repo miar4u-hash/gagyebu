@@ -86,7 +86,8 @@
     <select name="category"></select>
     <input type="number" name="amount" placeholder="금액" min="1" inputmode="numeric" required>
     <input name="memo" placeholder="메모" style="grid-column: span 2">
-    <button>추가</button>
+    <button id="submitBtn">추가</button>
+    <button type="button" id="cancelEdit" hidden style="background:#eee;color:#555">취소</button>
   </form>
 
   <table id="list"></table>
@@ -185,9 +186,9 @@ function render() {
   document.getElementById("left").textContent = won(income - spend);
 
   document.getElementById("list").innerHTML = rows.length
-    ? rows.map((r) => `<tr><td>${r.day.slice(5).replace("-", "/")}</td><td>${r.category}</td><td>${esc(r.memo)}</td>
+    ? rows.map((r) => `<tr onclick="edit(${r.id})" style="cursor:pointer"><td>${r.day.slice(5).replace("-", "/")}</td><td>${r.category}</td><td>${esc(r.memo)}</td>
         <td class="num ${r.kind}">${r.kind === "in" ? "+" : "-"}${r.amount.toLocaleString("ko-KR")}</td>
-        <td><button onclick="del(${r.id})">✕</button></td></tr>`).join("")
+        <td><button onclick="event.stopPropagation(); del(${r.id})">✕</button></td></tr>`).join("")
     : `<tr><td style="color:#aaa">아직 기록이 없어요</td></tr>`;
 
   const byCat = {};
@@ -333,9 +334,9 @@ function apply(list, ops) {
   return list;
 }
 // 바뀐 건 먼저 폰에 저장하고, 시트로 보낼 목록에 넣는다
-function change(op) {
-  setPending([...pending(), op]);
-  save(apply(load(), [op]));
+function change(...ops) {
+  setPending([...pending(), ...ops]);
+  save(apply(load(), ops));
   render();
   sync();
 }
@@ -391,12 +392,33 @@ async function sync() {
   if (ok && pending().length) sync();
 }
 
+// 수정 중인 기록 id (없으면 새로 추가)
+let editing = null;
+const submitBtn = document.getElementById("submitBtn"), cancelBtn = document.getElementById("cancelEdit");
+function setEditing(id) {
+  editing = id;
+  submitBtn.textContent = id ? "수정" : "추가";
+  cancelBtn.hidden = !id;
+  if (!id) { form.amount.value = ""; form.memo.value = ""; }
+}
+function edit(id) {
+  const r = load().find((x) => x.id === id);
+  form.day.value = r.day; form.kind.value = r.kind; form.category.value = r.category;
+  form.amount.value = r.amount; form.memo.value = r.memo;
+  setEditing(id);
+  form.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+cancelBtn.onclick = () => setEditing(null);
+
 form.onsubmit = (ev) => {
   ev.preventDefault();
-  change({ type: "add", row: { id: Date.now(), day: form.day.value, kind: form.kind.value, category: form.category.value,
-                               amount: Number(form.amount.value), memo: form.memo.value } });
+  const row = { id: editing || Date.now(), day: form.day.value, kind: form.kind.value, category: form.category.value,
+                amount: Number(form.amount.value), memo: form.memo.value };
+  // 수정 = 같은 id로 지웠다가 다시 넣기 (자동이체 기록도 id가 그대로라 다시 생기지 않음)
+  if (editing) change({ type: "del", id: editing }, { type: "add", row });
+  else change({ type: "add", row });
   [Y, M] = cycleOf(new Date(form.day.value + "T00:00"));
-  form.amount.value = ""; form.memo.value = "";
+  setEditing(null);
   render();
 };
 function del(id) {
