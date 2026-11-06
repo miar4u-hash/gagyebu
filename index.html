@@ -120,6 +120,7 @@ const ACCOUNTS = [
   { key: "kb", name: "국민은행", role: "자동이체" },
   { key: "kakao", name: "카카오뱅크", role: "체크카드" },
   { key: "safe", name: "카카오 세이프박스", role: "모으는 돈" },
+  { key: "piggy", name: "카카오 저금통", role: "잔돈 모으기" },
 ];
 const balances = () => JSON.parse(localStorage.getItem("balances") || "{}");
 function mergeBalances(a, b) {
