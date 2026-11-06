@@ -41,6 +41,7 @@
   .acct { display: grid; grid-template-columns: 1fr auto; padding: 8px 0; border-bottom: 1px solid #eee; cursor: pointer; font-size: 14px; }
   .acct:last-child { border-bottom: 0; }
   .acct small { grid-column: span 2; color: var(--muted); margin-top: 2px; }
+  #rform label { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: #888; }
   details { margin-top: 24px; color: #888; font-size: 14px; } details form { margin-top: 8px; }
 </style>
 </head>
@@ -95,6 +96,23 @@
   <table id="cats"></table>
   </div>
 
+  <details id="recurBox">
+    <summary>자동이체 관리</summary>
+    <div class="panel" style="color:#222">
+      <table id="recurList" style="margin-top:0"></table>
+      <form id="rform" style="box-shadow:none;padding:12px 0 0">
+        <select name="day"></select>
+        <select name="category"></select>
+        <input type="number" name="amount" placeholder="금액" min="1" inputmode="numeric" required>
+        <input name="memo" placeholder="메모 (예: 농협 적금)" required>
+        <label>시작 (몇 월분부터)<input type="month" name="from" required></label>
+        <label>끝 (비우면 계속)<input type="month" name="until"></label>
+        <button id="rsubmit">추가</button>
+        <button type="button" id="rcancel" hidden style="background:#eee;color:#555">취소</button>
+      </form>
+    </div>
+  </details>
+
   <details id="setup">
     <summary>구글 시트 연결 · <span id="status">연결 안 됨</span></summary>
     <form id="cfg">
@@ -108,7 +126,13 @@
 const CATEGORIES = ["월급", "식비", "카페/간식", "교통", "주거/관리비", "통신", "보험", "카드대금", "가족/용돈", "쇼핑", "의료", "문화/여가", "경조사", "저축", "기타"];
 
 // 매달 자동이체 목록은 개인 정보라 Apps Script(구글 계정 안)에 두고, 동기화할 때 받아와 여기 저장한다
-const recurring = () => JSON.parse(localStorage.getItem("recurring") || '{"from":null,"list":[]}');
+// { at: 고친 시각, nextRid: 다음 항목 번호, list: [{ rid, day, category, amount, memo, from: [년,월], until?: [년,월] }] }
+const recurring = () => {
+  const r = JSON.parse(localStorage.getItem("recurring") || "null");
+  return r && r.list && r.list.every((x) => "rid" in x) ? r : { at: 0, nextRid: 0, list: [] };
+};
+const ymNum = (a) => a[0] * 12 + a[1];
+const inRange = (r, y, m) => ymNum([y, m]) >= ymNum(r.from) && !(r.until && ymNum([y, m]) > ymNum(r.until));
 const KEY = "ledger";
 const load = () => JSON.parse(localStorage.getItem(KEY) || "[]");
 const save = (list) => localStorage.setItem(KEY, JSON.stringify(list));
@@ -198,8 +222,73 @@ function render() {
   document.getElementById("cats").innerHTML = cats.map(([c, t]) =>
     `<tr><td>${c}</td><td class="num">${won(t)}</td><td class="num" style="color:#888">${Math.floor((t * 100) / spend)}%</td></tr>`).join("");
   renderAccounts();
+  renderRecurring();
   renderYear();
 }
+
+// ---------- 자동이체 관리 ----------
+const rform = document.getElementById("rform");
+const rsubmit = document.getElementById("rsubmit"), rcancel = document.getElementById("rcancel");
+rform.day.innerHTML = `<option value="월급날">월급날</option>` +
+  [...Array(31)].map((_, i) => `<option value="${i + 1}">매달 ${i + 1}일</option>`).join("");
+rform.category.innerHTML = CATEGORIES.map((c) => `<option>${c}</option>`).join("");
+const ymStr = (a) => `${a[0]}-${String(a[1]).padStart(2, "0")}`;
+const ymParse = (s) => (s ? s.split("-").map(Number) : null);
+let rEditing = null;
+
+function setREditing(rid) {
+  rEditing = rid;
+  rsubmit.textContent = rid === null ? "추가" : "수정";
+  rcancel.hidden = rid === null;
+  if (rid === null) {
+    rform.amount.value = ""; rform.memo.value = ""; rform.until.value = "";
+    rform.from.value = ymStr(cycleOf(new Date()));
+  }
+}
+function renderRecurring() {
+  const R = recurring().list;
+  document.getElementById("recurList").innerHTML = R.length
+    ? R.map((r) => `<tr onclick="editRecur(${r.rid})" style="cursor:pointer">
+        <td>${r.day === "월급날" ? "월급날" : r.day + "일"}</td><td>${r.category}</td>
+        <td>${esc(r.memo)}<br><small style="color:#888">${r.from[0]}.${r.from[1]}월분 ~ ${r.until ? `${r.until[0]}.${r.until[1]}월분` : ""}</small></td>
+        <td class="num">${r.amount.toLocaleString("ko-KR")}</td>
+        <td><button onclick="event.stopPropagation(); delRecur(${r.rid})">✕</button></td></tr>`).join("")
+    : `<tr><td style="color:#aaa">구글 시트에 연결하면 목록을 불러와요</td></tr>`;
+}
+// 목록을 고치면 고친 시각(at)을 찍어서 시트로 보낸다 → 다른 기기에도 퍼짐
+function saveRecurring(list, nextRid) {
+  localStorage.setItem("recurring", JSON.stringify({ at: Date.now(), nextRid, list }));
+  addRecurring();
+  render();
+  sync();
+}
+function editRecur(rid) {
+  const r = recurring().list.find((x) => x.rid === rid);
+  rform.day.value = String(r.day); rform.category.value = r.category; rform.amount.value = r.amount; rform.memo.value = r.memo;
+  rform.from.value = ymStr(r.from); rform.until.value = r.until ? ymStr(r.until) : "";
+  setREditing(rid);
+  rform.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+function delRecur(rid) {
+  if (!confirm("이 자동이체를 목록에서 뺄까요? (이미 기록된 달은 그대로예요)")) return;
+  const R = recurring();
+  saveRecurring(R.list.filter((x) => x.rid !== rid), R.nextRid);
+}
+rform.onsubmit = (ev) => {
+  ev.preventDefault();
+  // 시트에서 목록을 한 번도 못 받았으면, 빈 목록으로 시트 목록을 덮어쓰지 않게 막는다
+  if (!localStorage.getItem("recurring")) return alert("먼저 구글 시트에 연결해서 목록을 불러와 주세요.");
+  const R = recurring();
+  const item = { rid: rEditing ?? R.nextRid, day: rform.day.value === "월급날" ? "월급날" : Number(rform.day.value),
+                 category: rform.category.value, amount: Number(rform.amount.value), memo: rform.memo.value,
+                 from: ymParse(rform.from.value) };
+  const until = ymParse(rform.until.value);
+  if (until) item.until = until;
+  const list = rEditing === null ? [...R.list, item] : R.list.map((x) => (x.rid === rEditing ? item : x));
+  saveRecurring(list, rEditing === null ? R.nextRid + 1 : R.nextRid);
+  setREditing(null);
+};
+rcancel.onclick = () => setREditing(null);
 
 function renderAccounts() {
   const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -220,8 +309,7 @@ function renderAccounts() {
         if (r.day === "월급날") continue;
         for (const k of [-1, 0]) {
           const d = new Date(pay.getFullYear(), pay.getMonth() + k, r.day);
-          const [cy, cm] = cycleOf(d);
-          if (d > from && d < pay && !(r.until && cy * 12 + cm > r.until[0] * 12 + r.until[1])) out += r.amount;
+          if (d > from && d < pay && inRange(r, ...cycleOf(d))) out += r.amount;
         }
       }
       note += ` · 월급날 전 자동이체 ${won(out)} 나가면 ${won(b.amount - out)} (카드대금 별도)`;
@@ -343,14 +431,14 @@ function change(...ops) {
 
 // 날짜가 지난 자동이체를 기록에 넣는다. id를 "년월+번호"로 고정해서 폰·맥북이 각각 넣어도 한 번만 들어감
 function addRecurring() {
-  const today = new Date(), list = load(), ops = [], R = recurring();
-  if (!R.from) return;
-  let [y, m] = R.from;
+  const today = new Date(), list = load(), ops = [], R = recurring().list;
+  if (!R.length) return;
+  let [y, m] = R.map((r) => r.from).reduce((a, b) => (ymNum(b) < ymNum(a) ? b : a));
   const [ey, em] = cycleOf(today);
   while (y * 12 + m <= ey * 12 + em) {
-    R.list.forEach((r, i) => {
-      if (r.until && y * 12 + m > r.until[0] * 12 + r.until[1]) return;
-      const id = Number(`${y}${String(m).padStart(2, "0")}${String(i).padStart(2, "0")}`);
+    R.forEach((r) => {
+      if (!inRange(r, y, m)) return;
+      const id = Number(`${y}${String(m).padStart(2, "0")}${String(r.rid).padStart(2, "0")}`);
       const d = r.day === "월급날" ? cycle(y, m)[0] : new Date(y, m - 1, r.day);
       if (d <= today && !list.some((x) => x.id === id))
         ops.push({ type: "add", row: { id, day: iso(d), kind: "out", category: r.category, amount: r.amount, memo: r.memo } });
@@ -371,7 +459,7 @@ async function sync() {
   try {
     // text/plain 으로 보내야 구글이 막지 않는다 (CORS 사전 확인 회피)
     const res = await fetch(url, { method: "POST", headers: { "Content-Type": "text/plain" },
-                                   body: JSON.stringify({ token, ops: sent, balances: balances() }) });
+                                   body: JSON.stringify({ token, ops: sent, balances: balances(), recurring: recurring() }) });
     const data = await res.json();
     if (data.error) throw new Error(data.error);
     const rest = pending().slice(sent.length); // 보내는 사이 새로 생긴 변경
@@ -380,7 +468,10 @@ async function sync() {
     const rows = data.rows.map((r) => (/^\d{4}-\d{2}-\d{2}$/.test(r.day) ? r : { ...r, day: iso(new Date(r.day)) }));
     save(apply(rows, rest));
     mergeBalances(balances(), data.balances);
-    localStorage.setItem("recurring", JSON.stringify({ from: data.recurringFrom, list: data.recurring || [] }));
+    let rec = data.recurring;
+    if (Array.isArray(rec)) // 예전 연결 코드: 목록만 옴
+      rec = { at: 0, nextRid: rec.length, list: rec.map((r, i) => ({ rid: i, from: data.recurringFrom, ...r })) };
+    if (rec && (!localStorage.getItem("recurring") || rec.at >= recurring().at)) localStorage.setItem("recurring", JSON.stringify(rec));
     addRecurring(); // 받아온 목록으로 빠진 자동이체 채우기 (새로 생기면 아래에서 바로 올림)
     status.textContent = "동기화됨 " + new Date().toTimeString().slice(0, 5);
     ok = true;
@@ -437,6 +528,7 @@ document.getElementById("prev").onclick = () => { [Y, M] = shift(Y, M, -1); rend
 document.getElementById("next").onclick = () => { [Y, M] = shift(Y, M, 1); render(); };
 
 form.day.value = iso(new Date());
+setREditing(null);
 addRecurring();
 render();
 sync();
