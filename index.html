@@ -1,0 +1,421 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#1a7f37">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<title>가계부</title>
+<style>
+  body { font-family: -apple-system, sans-serif; max-width: 720px; margin: 0 auto; padding: 16px; color: #222; background: #fafafa; }
+  h1 { display: flex; justify-content: space-between; align-items: center; font-size: 22px; margin: 8px 0; }
+  h1 button { background: none; border: 0; font-size: 22px; color: #888; padding: 4px 12px; }
+  .range { color: #888; font-size: 14px; margin: 0; text-align: center; }
+  .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 16px 0; }
+  .card { background: #fff; border-radius: 10px; padding: 12px; box-shadow: 0 1px 3px #0001; }
+  .card small { color: #888; } .card b { display: block; font-size: 16px; margin-top: 4px; word-break: break-all; }
+  .in { color: #1a7f37; } .out { color: #cf222e; }
+  form { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; background: #fff; padding: 12px; border-radius: 10px; box-shadow: 0 1px 3px #0001; }
+  form input, form select, form button { padding: 10px; font-size: 16px; border: 1px solid #ddd; border-radius: 6px; min-width: 0; background: #fff; }
+  form button { grid-column: span 2; background: #1a7f37; color: #fff; border: 0; }
+  table { width: 100%; border-collapse: collapse; margin-top: 12px; background: #fff; border-radius: 10px; overflow: hidden; }
+  td, th { padding: 8px; border-bottom: 1px solid #eee; font-size: 14px; text-align: left; }
+  .num { text-align: right; white-space: nowrap; }
+  td button { background: none; border: 0; color: #bbb; font-size: 16px; }
+  h2 { font-size: 16px; margin-top: 24px; }
+  :root { --s1: #2a78d6; --s2: #eb6834; --grid: #e6e5e1; --muted: #888; }
+  .tabs { display: flex; gap: 4px; background: #eee; border-radius: 8px; padding: 3px; }
+  .tabs button { flex: 1; border: 0; background: none; padding: 8px; font-size: 15px; border-radius: 6px; color: #666; }
+  .tabs button.on { background: #fff; color: #222; font-weight: 600; box-shadow: 0 1px 2px #0002; }
+  .card small + small, #yrate { display: block; margin-top: 2px; }
+  .panel { background: #fff; border-radius: 10px; padding: 12px; box-shadow: 0 1px 3px #0001; margin-top: 12px; }
+  .panel h2 { margin: 0 0 8px; }
+  .legend { display: flex; gap: 12px; font-size: 13px; color: #555; margin-bottom: 4px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+  #ychart text { font-size: 10px; fill: var(--muted); }
+  #tip { position: absolute; top: 0; background: #222; color: #fff; font-size: 12px; padding: 6px 8px; border-radius: 6px; pointer-events: none; white-space: nowrap; line-height: 1.5; }
+  .catrow { display: grid; grid-template-columns: 76px 1fr auto; gap: 8px; align-items: center; font-size: 13px; margin: 6px 0; }
+  .catrow .bar { height: 10px; background: var(--s2); border-radius: 0 4px 4px 0; }
+  .catrow .v { color: #555; white-space: nowrap; }
+  .acct { display: grid; grid-template-columns: 1fr auto; padding: 8px 0; border-bottom: 1px solid #eee; cursor: pointer; font-size: 14px; }
+  .acct:last-child { border-bottom: 0; }
+  .acct small { grid-column: span 2; color: var(--muted); margin-top: 2px; }
+  details { margin-top: 24px; color: #888; font-size: 14px; } details form { margin-top: 8px; }
+</style>
+</head>
+<body>
+  <nav class="tabs"><button id="tabMonth" class="on">월</button><button id="tabYear">1년</button></nav>
+
+  <div id="yearView" hidden>
+    <h1><button id="yprev">◀</button><span id="ytitle"></span><button id="ynext">▶</button></h1>
+    <p class="range" id="yrange"></p>
+    <div class="cards">
+      <div class="card"><small>1년 수입</small><b id="yincome"></b></div>
+      <div class="card"><small>1년 지출</small><b id="yspend"></b></div>
+      <div class="card"><small>남은 돈</small><b id="yleft"></b><small id="yrate"></small></div>
+    </div>
+    <div class="panel">
+      <h2>월별 수입·지출</h2>
+      <div class="legend"><span><i style="background:var(--s1)"></i>수입</span><span><i style="background:var(--s2)"></i>지출</span></div>
+      <div style="position:relative"><svg id="ychart" viewBox="0 0 360 200" width="100%"></svg><div id="tip" hidden></div></div>
+    </div>
+    <div class="panel">
+      <h2>분류별 지출 (1년)</h2>
+      <div id="ycats"></div>
+    </div>
+    <h2>월별 표</h2>
+    <table id="ytable"></table>
+  </div>
+
+  <div id="monthView">
+  <h1><button id="prev">◀</button><span id="title"></span><button id="next">▶</button></h1>
+  <p class="range" id="range"></p>
+
+  <div class="cards">
+    <div class="card"><small>수입</small><b class="in" id="income"></b></div>
+    <div class="card"><small>지출</small><b class="out" id="spend"></b></div>
+    <div class="card"><small>남은 돈</small><b id="left"></b></div>
+  </div>
+
+  <div class="panel" id="accounts"></div>
+
+  <form id="form" style="margin-top:12px">
+    <input type="date" name="day" required>
+    <select name="kind"><option value="out">지출</option><option value="in">수입</option></select>
+    <select name="category"></select>
+    <input type="number" name="amount" placeholder="금액" min="1" inputmode="numeric" required>
+    <input name="memo" placeholder="메모" style="grid-column: span 2">
+    <button>추가</button>
+  </form>
+
+  <table id="list"></table>
+  <h2 id="catTitle">분류별 지출</h2>
+  <table id="cats"></table>
+  </div>
+
+  <details id="setup">
+    <summary>구글 시트 연결 · <span id="status">연결 안 됨</span></summary>
+    <form id="cfg">
+      <input name="url" placeholder="Apps Script 웹 앱 URL" style="grid-column: span 2" required>
+      <input name="token" placeholder="암호" type="password" style="grid-column: span 2" required>
+      <button>저장하고 동기화</button>
+    </form>
+  </details>
+
+<script>
+const CATEGORIES = ["월급", "식비", "카페/간식", "교통", "주거/관리비", "통신", "보험", "가족/용돈", "쇼핑", "의료", "문화/여가", "경조사", "저축", "기타"];
+
+// 매달 자동이체 목록은 개인 정보라 Apps Script(구글 계정 안)에 두고, 동기화할 때 받아와 여기 저장한다
+const recurring = () => JSON.parse(localStorage.getItem("recurring") || '{"from":null,"list":[]}');
+const KEY = "ledger";
+const load = () => JSON.parse(localStorage.getItem(KEY) || "[]");
+const save = (list) => localStorage.setItem(KEY, JSON.stringify(list));
+// 아직 시트로 못 보낸 변경 목록 (인터넷 끊겼을 때 쌓임)
+const pending = () => JSON.parse(localStorage.getItem("pending") || "[]");
+const setPending = (ops) => localStorage.setItem("pending", JSON.stringify(ops));
+const conf = () => JSON.parse(localStorage.getItem("sheet") || "{}");
+// 통장 잔액: { kb: {amount, day, at}, ... } — at(고친 시각)이 더 최근인 쪽이 이김
+const ACCOUNTS = [
+  { key: "kb", name: "국민은행", role: "자동이체" },
+  { key: "kakao", name: "카카오뱅크", role: "체크카드" },
+  { key: "safe", name: "카카오 세이프박스", role: "모으는 돈" },
+];
+const balances = () => JSON.parse(localStorage.getItem("balances") || "{}");
+function mergeBalances(a, b) {
+  const out = { ...a };
+  for (const [k, v] of Object.entries(b || {})) if (!out[k] || v.at > out[k].at) out[k] = v;
+  localStorage.setItem("balances", JSON.stringify(out));
+}
+const won = (n) => n.toLocaleString("ko-KR") + "원";
+const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const md = (d) => `${d.getMonth() + 1}/${d.getDate()}`;
+const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+// m은 1~12. new Date(y, m, 0) = m월의 마지막 날
+const lastDay = (y, m) => new Date(y, m, 0);
+const shift = (y, m, k) => { const d = new Date(y, m - 1 + k, 1); return [d.getFullYear(), d.getMonth() + 1]; };
+
+// 월급날: 말일, 주말이면 그 전 금요일 (토 -1일, 일 -2일)
+function payday(y, m) {
+  const d = lastDay(y, m), w = d.getDay();
+  if (w === 6) d.setDate(d.getDate() - 1);
+  if (w === 0) d.setDate(d.getDate() - 2);
+  return d;
+}
+// 월급 기준 한 달: 전달 월급날 ~ 이번 달 월급날 전날
+function cycle(y, m) {
+  const [py, pm] = shift(y, m, -1);
+  const end = payday(y, m); end.setDate(end.getDate() - 1);
+  return [payday(py, pm), end];
+}
+// 날짜 d가 몇 월분인지 (이번 달 월급날부터는 다음 달분)
+function cycleOf(d) {
+  const y = d.getFullYear(), m = d.getMonth() + 1;
+  return d >= payday(y, m) ? shift(y, m, 1) : [y, m];
+}
+
+const form = document.getElementById("form");
+form.category.innerHTML = CATEGORIES.map((c) => `<option>${c}</option>`).join("");
+form.kind.onchange = () => { form.category.value = form.kind.value === "in" ? "월급" : "식비"; };
+form.kind.onchange();
+
+let [Y, M] = cycleOf(new Date());
+
+function render() {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const [start, end] = cycle(Y, M);
+  const s = iso(start), e = iso(end);
+  const rows = load().filter((r) => r.day >= s && r.day <= e)
+    .sort((a, b) => b.day.localeCompare(a.day) || b.id - a.id);
+
+  const income = rows.filter((r) => r.kind === "in").reduce((t, r) => t + r.amount, 0);
+  const spend = rows.filter((r) => r.kind === "out").reduce((t, r) => t + r.amount, 0);
+
+  document.getElementById("title").textContent = `${Y}년 ${M}월분`;
+  let range = `${md(start)} (월급날) ~ ${md(end)}`;
+  if (today >= start && today <= end) {
+    const payday = new Date(end); payday.setDate(payday.getDate() + 1);
+    range += ` · 다음 월급까지 D-${Math.round((payday - today) / 86400000)}`;
+  }
+  document.getElementById("range").textContent = range;
+  document.getElementById("income").textContent = won(income);
+  document.getElementById("spend").textContent = won(spend);
+  document.getElementById("left").textContent = won(income - spend);
+
+  document.getElementById("list").innerHTML = rows.length
+    ? rows.map((r) => `<tr><td>${r.day.slice(5).replace("-", "/")}</td><td>${r.category}</td><td>${esc(r.memo)}</td>
+        <td class="num ${r.kind}">${r.kind === "in" ? "+" : "-"}${r.amount.toLocaleString("ko-KR")}</td>
+        <td><button onclick="del(${r.id})">✕</button></td></tr>`).join("")
+    : `<tr><td style="color:#aaa">아직 기록이 없어요</td></tr>`;
+
+  const byCat = {};
+  rows.filter((r) => r.kind === "out").forEach((r) => (byCat[r.category] = (byCat[r.category] || 0) + r.amount));
+  const cats = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
+  document.getElementById("catTitle").hidden = !cats.length;
+  document.getElementById("cats").innerHTML = cats.map(([c, t]) =>
+    `<tr><td>${c}</td><td class="num">${won(t)}</td><td class="num" style="color:#888">${Math.floor((t * 100) / spend)}%</td></tr>`).join("");
+  renderAccounts();
+  renderYear();
+}
+
+function renderAccounts() {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const pay = cycle(...cycleOf(today))[1]; pay.setDate(pay.getDate() + 1); // 다음 월급날
+  const days = Math.round((pay - today) / 86400000);
+  const bal = balances();
+  let total = 0;
+  const html = ACCOUNTS.map((a) => {
+    const b = bal[a.key];
+    if (!b) return `<div class="acct" data-k="${a.key}"><span>${a.name} · ${a.role}</span><span style="color:#aaa">눌러서 잔액 입력</span></div>`;
+    total += b.amount;
+    let note = `${b.day.slice(5).replace("-", "/")} 기준`;
+    if (a.key === "kb") {
+      // 잔액 기준일 다음 날 ~ 월급날 전날 사이에 나갈 자동이체 (월급날에 나가는 건 월급으로 충당)
+      const from = new Date(b.day + "T00:00");
+      let out = 0;
+      for (const r of recurring().list) {
+        if (r.day === "월급날") continue;
+        for (const k of [-1, 0]) {
+          const d = new Date(pay.getFullYear(), pay.getMonth() + k, r.day);
+          const [cy, cm] = cycleOf(d);
+          if (d > from && d < pay && !(r.until && cy * 12 + cm > r.until[0] * 12 + r.until[1])) out += r.amount;
+        }
+      }
+      note += ` · 월급날 전 자동이체 ${won(out)} 나가면 ${won(b.amount - out)} (카드대금 별도)`;
+    }
+    if (a.key === "kakao" && days > 0) note += ` · 월급날까지 ${days}일, 하루 ${won(Math.floor(b.amount / days))}`;
+    return `<div class="acct" data-k="${a.key}"><span>${a.name} · ${a.role}</span><b>${won(b.amount)}</b><small>${note}</small></div>`;
+  }).join("");
+  const box = document.getElementById("accounts");
+  box.innerHTML = `<h2 style="margin:0 0 4px">통장</h2>${html}` +
+    (total ? `<div class="acct" style="cursor:default"><span>합계</span><b>${won(total)}</b></div>` : "");
+  box.querySelectorAll("[data-k]").forEach((el) => (el.onclick = () => {
+    const a = ACCOUNTS.find((x) => x.key === el.dataset.k);
+    const v = prompt(`${a.name} 지금 잔액 (원)`, bal[a.key]?.amount ?? "");
+    if (v === null || v.trim() === "" || isNaN(Number(v.replaceAll(",", "")))) return;
+    mergeBalances(balances(), { [a.key]: { amount: Number(v.replaceAll(",", "")), day: iso(new Date()), at: Date.now() } });
+    render();
+    sync();
+  }));
+}
+
+// ---------- 1년 대시보드 (1월분 ~ 12월분) ----------
+let YY = cycleOf(new Date())[0];
+const man = (n) => (n / 10000).toLocaleString("ko-KR", { maximumFractionDigits: 1 }) + "만";
+
+function renderYear() {
+  const all = load();
+  const months = [...Array(12)].map((_, i) => {
+    const [s, e] = cycle(YY, i + 1).map(iso);
+    const rows = all.filter((r) => r.day >= s && r.day <= e);
+    const sum = (k) => rows.filter((r) => r.kind === k).reduce((t, r) => t + r.amount, 0);
+    return { m: i + 1, rows, inc: sum("in"), out: sum("out") };
+  });
+  const inc = months.reduce((t, x) => t + x.inc, 0), out = months.reduce((t, x) => t + x.out, 0);
+  const g = (id) => document.getElementById(id);
+  g("ytitle").textContent = `${YY}년`;
+  g("yrange").textContent = `${iso(cycle(YY, 1)[0]).replaceAll("-", ".")} ~ ${iso(cycle(YY, 12)[1]).replaceAll("-", ".")} (1월분~12월분)`;
+  g("yincome").textContent = man(inc) + "원";
+  g("yspend").textContent = man(out) + "원";
+  g("yleft").textContent = man(inc - out) + "원";
+  g("yrate").textContent = inc ? `수입의 ${Math.round(((inc - out) * 100) / inc)}% 남김` : "";
+
+  // 월별 막대: 수입·지출 나란히, y축 하나
+  const W = 360, H = 200, L = 34, B = 18, T = 8, ph = H - B - T;
+  const max = Math.max(...months.flatMap((x) => [x.inc, x.out]), 1);
+  const step = niceStep(max / 3), top = Math.ceil(max / step) * step;
+  const y = (v) => T + ph - (v / top) * ph;
+  const gw = (W - L) / 12, bw = Math.min(10, (gw - 6) / 2);
+  const bar = (x, v, c) => {
+    if (!v) return "";
+    const h = Math.max(ph * (v / top), 2), r = Math.min(4, h, bw / 2), yy = T + ph - h;
+    return `<path fill="${c}" d="M${x},${T + ph}V${yy + r}Q${x},${yy} ${x + r},${yy}H${x + bw - r}Q${x + bw},${yy} ${x + bw},${yy + r}V${T + ph}Z"/>`;
+  };
+  let svg = "";
+  for (let v = 0; v <= top; v += step)
+    svg += `<line x1="${L}" x2="${W}" y1="${y(v)}" y2="${y(v)}" stroke="var(--grid)"/><text x="${L - 4}" y="${y(v) + 3}" text-anchor="end">${man(v)}</text>`;
+  months.forEach((x, i) => {
+    const gx = L + i * gw, bx = gx + (gw - bw * 2 - 2) / 2;
+    svg += bar(bx, x.inc, "var(--s1)") + bar(bx + bw + 2, x.out, "var(--s2)");
+    svg += `<text x="${gx + gw / 2}" y="${H - 4}" text-anchor="middle">${x.m}</text>`;
+    svg += `<rect data-i="${i}" x="${gx}" y="0" width="${gw}" height="${H}" fill="transparent"/>`;
+  });
+  const chart = g("ychart"), tip = g("tip");
+  chart.innerHTML = svg;
+  const show = (ev) => {
+    const i = ev.target.dataset.i;
+    if (i === undefined) return (tip.hidden = true);
+    const x = months[i];
+    tip.innerHTML = `<b>${x.m}월분</b><br>수입 ${won(x.inc)}<br>지출 ${won(x.out)}<br>남은 돈 ${won(x.inc - x.out)}`;
+    tip.hidden = false;
+    const px = ((L + (Number(i) + 0.5) * gw) / W) * chart.clientWidth;
+    tip.style.left = Math.min(Math.max(px - tip.offsetWidth / 2, 0), chart.clientWidth - tip.offsetWidth) + "px";
+  };
+  chart.onpointermove = chart.onpointerdown = show;
+  chart.onpointerleave = () => (tip.hidden = true);
+
+  // 분류별 지출: 큰 순서, 한 가지 색
+  const byCat = {};
+  months.flatMap((x) => x.rows).filter((r) => r.kind === "out")
+    .forEach((r) => (byCat[r.category] = (byCat[r.category] || 0) + r.amount));
+  const cats = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
+  g("ycats").innerHTML = cats.length
+    ? cats.map(([c, t]) => `<div class="catrow"><span>${c}</span><div class="bar" style="width:${Math.max((t / cats[0][1]) * 100, 1)}%"></div>
+        <span class="v">${won(t)} · ${Math.round((t * 100) / out)}%</span></div>`).join("")
+    : `<p style="color:#aaa;margin:0">아직 지출 기록이 없어요</p>`;
+
+  g("ytable").innerHTML = `<tr><th>월분</th><th class="num">수입</th><th class="num">지출</th><th class="num">남은 돈</th></tr>` +
+    months.map((x) => `<tr><td>${x.m}월</td><td class="num">${x.inc.toLocaleString("ko-KR")}</td>
+      <td class="num">${x.out.toLocaleString("ko-KR")}</td><td class="num">${(x.inc - x.out).toLocaleString("ko-KR")}</td></tr>`).join("");
+}
+// 눈금 간격을 1·2·5 × 10ⁿ 으로 맞춘다 (예: 100만, 200만, 500만)
+function niceStep(v) {
+  const p = 10 ** Math.floor(Math.log10(v)), f = v / p;
+  return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * p;
+}
+document.getElementById("yprev").onclick = () => { YY--; renderYear(); };
+document.getElementById("ynext").onclick = () => { YY++; renderYear(); };
+for (const [btn, view] of [["tabMonth", "monthView"], ["tabYear", "yearView"]])
+  document.getElementById(btn).onclick = () => {
+    for (const [b, v] of [["tabMonth", "monthView"], ["tabYear", "yearView"]]) {
+      document.getElementById(b).classList.toggle("on", b === btn);
+      document.getElementById(v).hidden = v !== view;
+    }
+  };
+
+function apply(list, ops) {
+  for (const op of ops) {
+    if (op.type === "add" && !list.some((r) => r.id === op.row.id)) list.push(op.row);
+    if (op.type === "del") list = list.filter((r) => r.id !== op.id);
+  }
+  return list;
+}
+// 바뀐 건 먼저 폰에 저장하고, 시트로 보낼 목록에 넣는다
+function change(op) {
+  setPending([...pending(), op]);
+  save(apply(load(), [op]));
+  render();
+  sync();
+}
+
+// 날짜가 지난 자동이체를 기록에 넣는다. id를 "년월+번호"로 고정해서 폰·맥북이 각각 넣어도 한 번만 들어감
+function addRecurring() {
+  const today = new Date(), list = load(), ops = [], R = recurring();
+  if (!R.from) return;
+  let [y, m] = R.from;
+  const [ey, em] = cycleOf(today);
+  while (y * 12 + m <= ey * 12 + em) {
+    R.list.forEach((r, i) => {
+      if (r.until && y * 12 + m > r.until[0] * 12 + r.until[1]) return;
+      const id = Number(`${y}${String(m).padStart(2, "0")}${String(i).padStart(2, "0")}`);
+      const d = r.day === "월급날" ? cycle(y, m)[0] : new Date(y, m - 1, r.day);
+      if (d <= today && !list.some((x) => x.id === id))
+        ops.push({ type: "add", row: { id, day: iso(d), kind: "out", category: r.category, amount: r.amount, memo: r.memo } });
+    });
+    [y, m] = shift(y, m, 1);
+  }
+  if (ops.length) { setPending([...pending(), ...ops]); save(apply(list, ops)); }
+}
+
+let busy = false;
+async function sync() {
+  const { url, token } = conf();
+  const status = document.getElementById("status");
+  if (!url || busy) return;
+  busy = true;
+  const sent = pending();
+  let ok = false;
+  try {
+    // text/plain 으로 보내야 구글이 막지 않는다 (CORS 사전 확인 회피)
+    const res = await fetch(url, { method: "POST", headers: { "Content-Type": "text/plain" },
+                                   body: JSON.stringify({ token, ops: sent, balances: balances() }) });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    const rest = pending().slice(sent.length); // 보내는 사이 새로 생긴 변경
+    setPending(rest);
+    save(apply(data.rows, rest));
+    mergeBalances(balances(), data.balances);
+    localStorage.setItem("recurring", JSON.stringify({ from: data.recurringFrom, list: data.recurring || [] }));
+    addRecurring(); // 받아온 목록으로 빠진 자동이체 채우기 (새로 생기면 아래에서 바로 올림)
+    status.textContent = "동기화됨 " + new Date().toTimeString().slice(0, 5);
+    ok = true;
+  } catch (err) {
+    status.textContent = `동기화 실패 (${err.message}) · 대기 ${pending().length}건`;
+  }
+  busy = false;
+  render();
+  if (ok && pending().length) sync();
+}
+
+form.onsubmit = (ev) => {
+  ev.preventDefault();
+  change({ type: "add", row: { id: Date.now(), day: form.day.value, kind: form.kind.value, category: form.category.value,
+                               amount: Number(form.amount.value), memo: form.memo.value } });
+  [Y, M] = cycleOf(new Date(form.day.value + "T00:00"));
+  form.amount.value = ""; form.memo.value = "";
+  render();
+};
+function del(id) {
+  if (confirm("삭제할까요?")) change({ type: "del", id });
+}
+
+const cfg = document.getElementById("cfg");
+cfg.url.value = conf().url || ""; cfg.token.value = conf().token || "";
+cfg.onsubmit = (ev) => {
+  ev.preventDefault();
+  localStorage.setItem("sheet", JSON.stringify({ url: cfg.url.value.trim(), token: cfg.token.value }));
+  sync();
+};
+window.addEventListener("online", sync);
+document.getElementById("prev").onclick = () => { [Y, M] = shift(Y, M, -1); render(); };
+document.getElementById("next").onclick = () => { [Y, M] = shift(Y, M, 1); render(); };
+
+form.day.value = iso(new Date());
+addRecurring();
+render();
+sync();
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js");
+</script>
+</body>
+</html>

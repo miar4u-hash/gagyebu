@@ -1,0 +1,8 @@
+# 앱 파일만 공개. 연결 코드·사용법·가져올내역은 개인 정보라 올리지 않음
+*
+!.gitignore
+!index.html
+!manifest.json
+!sw.js
+!icon-192.png
+!icon-512.png
